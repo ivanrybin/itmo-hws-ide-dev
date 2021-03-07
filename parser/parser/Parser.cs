@@ -57,15 +57,7 @@ namespace IDE_HW1.parser
             {
                 if (c != ' ')
                 {
-                    if (c == '(')
-                    {
-                        lbs++;
-                        stack.Push(c);
-                    } else if (c == ')')
-                    {
-                        rbs++;
-                        stack.Push(c);
-                    } else if (!next.Keys.Contains(c))
+                    if (!next.Keys.Contains(c))
                     {
                         return false;
                     }
@@ -73,27 +65,40 @@ namespace IDE_HW1.parser
                     {
                         if (isFirst)
                         {
+                            if (ops.Contains(c) || ')' == c)
+                            {
+                                return false;
+                            }
                             prev = c;
                             isFirst = false;
                             stack.Push(c);
                         }
+                        else if (next[prev].Contains(c))
+                        {
+                            stack.Push(c);
+                            prev = c;
+                        }
                         else
                         {
-                            if (next[prev].Contains(c))
-                            {
-                                stack.Push(c);
-                                prev = c;
-                            }
-                            else
-                            {
-                                return false;
-                            }
+                            return false;
+                        }
+                        
+                        if (c == '(')
+                        {
+                            lbs++;
+                        } else if (c == ')')
+                        {
+                            rbs++;
                         }
                     }
                 }
             }
 
             if (stack.Count == 1 && (ops.Contains(stack.Peek()) || stack.Peek() == ')' || stack.Peek() == '('))
+            {
+                return false;
+            }
+            if (ops.Contains(prev) || prev == '(')
             {
                 return false;
             }
