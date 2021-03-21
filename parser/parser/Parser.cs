@@ -7,47 +7,54 @@ namespace IDE_HW1.parser
 {
     public class Parser
     {
-        private static List<char> letters = new List<char>()
+        private static readonly List<char> Letters = new List<char>()
         {
             'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
             'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
         };
-        private static List<char> digits = new List<char>() {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
-        private static List<char> ops = new List<char>() {'+', '-', '/', '*'};
-
-        private static Dictionary<char, List<char>> next = new Dictionary<char, List<char>>
+        private static readonly List<char> Digits = new List<char>() {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
+        private static readonly List<char> Ops = new List<char>() {'+', '-', '/', '*'};
+        private static readonly Dictionary<char, int> Priority = new Dictionary<char, int>
         {
-            {'(', digits.Concat(letters).Concat(new List<char> {'('}).ToList()},
-            {')', ops.Concat(new List<char> {')'}).ToList()}
+            {'+', 0},
+            {'-', 0},
+            {'*', 1},
+            {'/', 1}
+        };
+
+        private static readonly Dictionary<char, List<char>> Next = new Dictionary<char, List<char>>
+        {
+            {'(', Digits.Concat(Letters).Concat(new List<char> {'('}).ToList()},
+            {')', Ops.Concat(new List<char> {')'}).ToList()}
         };
         
         static Parser()
         {
-            for (int i = 0; i < letters.Count; i++)
+            for (int i = 0; i < Letters.Count; i++)
             {
-                next[letters[i]] = ops.Concat(new List<char> {')'}).ToList();
+                Next[Letters[i]] = Ops.Concat(new List<char> {')'}).ToList();
             }
-            for (int i = 0; i < digits.Count; i++)
+            for (int i = 0; i < Digits.Count; i++)
             {
-                next[digits[i]] = ops.Concat(new List<char> {')'}).ToList();
+                Next[Digits[i]] = Ops.Concat(new List<char> {')'}).ToList();
             }
-            for (int i = 0; i < ops.Count; i++)
+            for (int i = 0; i < Ops.Count; i++)
             {
-                next[ops[i]] = digits.Concat(letters).Concat(new List<char> {'('}).ToList();
+                Next[Ops[i]] = Digits.Concat(Letters).Concat(new List<char> {'('}).ToList();
             }
         }
 
         public static IExpression Parse(string s)
         {
-            Stack<char> stack = new Stack<char>();
-            if (!ParseInputString(s, stack))
+            List<char> chars = new List<char>();
+            if (!ParseInputString(s, chars))
             {
                 return null;
             }
-            return BuildExpression(stack);
+            return BuildExpression(chars);
         }
 
-        private static bool ParseInputString(string s, Stack<char> stack)
+        private static bool ParseInputString(string s, List<char> chars)
         {
             int lbs = 0;
             int rbs = 0;
@@ -57,84 +64,125 @@ namespace IDE_HW1.parser
             {
                 if (c != ' ')
                 {
-                    if (!next.Keys.Contains(c))
+                    if (!Next.Keys.Contains(c))
                     {
                         return false;
                     }
-                    else
+                    if (isFirst)
                     {
-                        if (isFirst)
-                        {
-                            if (ops.Contains(c) || ')' == c)
-                            {
-                                return false;
-                            }
-                            prev = c;
-                            isFirst = false;
-                            stack.Push(c);
-                        }
-                        else if (next[prev].Contains(c))
-                        {
-                            stack.Push(c);
-                            prev = c;
-                        }
-                        else
+                        if (Ops.Contains(c) || ')' == c)
                         {
                             return false;
                         }
-                        
-                        if (c == '(')
-                        {
-                            lbs++;
-                        } else if (c == ')')
-                        {
-                            rbs++;
-                        }
+                        prev = c;
+                        isFirst = false;
+                        chars.Add(c);
+                    }
+                    else if (Next[prev].Contains(c))
+                    {
+                        chars.Add(c);
+                        prev = c;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                    
+                    if (c == '(')
+                    {
+                        lbs++;
+                    } else if (c == ')')
+                    {
+                        rbs++;
                     }
                 }
             }
 
-            if (stack.Count == 1 && (ops.Contains(stack.Peek()) || stack.Peek() == ')' || stack.Peek() == '('))
+            if (chars.Count == 1 && (Ops.Contains(chars.First()) || chars.First() == ')' || chars.First() == '('))
             {
                 return false;
             }
-            if (ops.Contains(prev) || prev == '(')
+            if (Ops.Contains(prev) || prev == '(')
             {
                 return false;
             }
             return lbs == rbs;
         }
 
-        private static IExpression BuildExpression(Stack<char> stack, bool isInner = false)
+        private static IExpression BuildExpression(List<char> chars)
         {
             IExpression expr = null;
-            while (stack.Count > 0)
+            Stack<char> ops = new Stack<char>();
+            Stack<IExpression> ast = new Stack<IExpression>();
+            
+            foreach (var c in chars)
             {
-                char c = stack.Pop();
-                if (c == '+' || c == '-' || c == '*' || c == '/')
+                switch (c)
                 {
-                    expr = new BinaryExpression(BuildExpression(stack, true), expr, c.ToString());
-                } else if (c == ')')
-                {
-                    expr = new ParenExpression(BuildExpression(stack));
-                }
-                else if (c == '(')
-                {
-                    return expr;
-                }
-                else
-                {
-                    expr = CreateLiteralOrVariable(c);
-                }
-                if (expr != null && isInner)
-                {
-                    return expr;
+                    case '(':
+                        ops.Push(c);
+                        break;
+                    case ')':
+                        while (ops.Count != 0)
+                        {
+                            char p = ops.Pop();
+                            if (p == '(')
+                            {
+                                ast.Push(new ParenExpression(ast.Pop()));
+                                break;
+                            }
+                            IExpression r = ast.Pop();
+                            IExpression l = ast.Pop();
+                            ast.Push(new BinaryExpression(l, r, p.ToString()));
+                        }
+                        break;
+                    default:
+                        if (Ops.Contains(c))
+                        {
+                            while (ops.Count != 0 && Ops.Contains(ops.Peek()))
+                            {
+                                if (Priority[c] <= Priority[ops.Peek()])
+                                {
+                                    IExpression r = ast.Pop();
+                                    IExpression l = ast.Pop();
+                                    ast.Push(
+                                        new BinaryExpression(l, r, ops.Pop().ToString())
+                                    );
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+                            ops.Push(c);
+                        }
+                        else
+                        {
+                            if (Letters.Contains(c))
+                            {
+                                ast.Push(new Variable(c.ToString()));
+                            }
+                            else
+                            {
+                                ast.Push(new Literal(c.ToString()));
+                            }
+                        }
+                        break;
                 }
             }
-            return expr;
+
+            while (ops.Count != 0)
+            {
+                IExpression r = ast.Pop();
+                IExpression l = ast.Pop();
+                ast.Push(
+                    new BinaryExpression(l, r, ops.Pop().ToString())
+                );
+            }
+            return ast.Pop();
         }
 
         private static IExpression CreateLiteralOrVariable(char c) =>
-            digits.Contains(c) ? new Literal(c.ToString()) : new Variable(c.ToString());
+            Digits.Contains(c) ? new Literal(c.ToString()) : new Variable(c.ToString());
     }
 }

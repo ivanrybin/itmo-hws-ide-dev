@@ -44,16 +44,50 @@ namespace  IDE_HW1.parser
             }
             return exp;
         }
-        
+
         [Test]
-        public void Basics()
+        public void BasicsAssociative()
+        {
+            string[] exps =
+            {
+                "1 + 2 + 3",
+                "1 + 2 * 3",
+                "1 * 2 + 3",
+                "1 + 2 * 3 * 4",
+                "1 * 2 + 3 * 4",
+                "1 * (2 + 3) * 4",
+                "(1 + 2) * (3 + 4)",
+                "1 + 2 + 3 * 4 + 5"
+            };
+            string[] expected =
+            {
+                "BinExp(BinExp(Lit(1)+Lit(2))+Lit(3))",
+                "BinExp(Lit(1)+BinExp(Lit(2)*Lit(3)))",
+                "BinExp(BinExp(Lit(1)*Lit(2))+Lit(3))",
+                "BinExp(Lit(1)+BinExp(BinExp(Lit(2)*Lit(3))*Lit(4)))",
+                "BinExp(BinExp(Lit(1)*Lit(2))+BinExp(Lit(3)*Lit(4)))",
+                "BinExp(BinExp(Lit(1)*Paren(BinExp(Lit(2)+Lit(3))))*Lit(4))",
+                "BinExp(Paren(BinExp(Lit(1)+Lit(2)))*Paren(BinExp(Lit(3)+Lit(4))))",
+                "BinExp(BinExp(BinExp(Lit(1)+Lit(2))+BinExp(Lit(3)*Lit(4)))+Lit(5))"
+            };
+            for (int i = 0; i < exps.Length; i++)
+            {
+                Visitor v = new Visitor();
+                IExpression e = Parser.Parse(exps[i]);
+                e.Accept(v, false);
+                Assert.AreEqual(expected[i], v.Dump());
+            }
+        }
+
+        [Test]
+        public void BasicsSimple()
         {
             string[] exps =
             {
                 "1", "a", "(1)", "((1))", 
-                "1+2", "(1+2)", "(1)+(2)", 
-                "(1+2)+3", "(1)+(2+3)", "(1+2+3)", "(1+(2+3))", "((1+2)+3)",
-                "(1+2)+3+4", "(1)+(2+3)+(4)", "(1+2+3)+4", "(1+(2+3)+4)", "(1+2)+(3+4)", "1+2+3+4"
+                "1+2", "(1*2)", "(1)+(2)", 
+                "(1+2)+3", "(1)/(2+3)", "(1*2+3)", "(1-(2+3))", "((1-2)+3)",
+                "(1+2)+3+4", "(1)-(2+3)+(4)", "(1+2+3)*4", "(1+(2+3)+4)", "(1+2)+(3+4)", "1+2+3+4"
             };
             for (int i = 0; i < exps.Length; i++)
             {
