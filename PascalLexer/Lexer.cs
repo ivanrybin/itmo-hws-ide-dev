@@ -1,51 +1,136 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace PascalLexer
 {
     public class Lexer
     {
         private int Pos;
-        private bool Eof;
-        private StringReader Reader;
+        private Token Eof;
+        private string input;
 
         public Lexer(string input)
         {
-            Reader = new StringReader(input);
+            this.input = input;
         }
 
         public Token Lex()
         {
-            if (Eof) return new Token(TokenType.Eof, Pos, Pos, null);
-            // ' ' OR '\n'
-            while (Reader.Peek() == ' ' || Reader.Peek() == '\n') ReadAndIncrement();
-            int c = Reader.Peek();
             // EOF
-            if (c == -1)
+            if (Eof != null)
             {
-                Eof = true;
-                Reader.Close();
-                return new Token(TokenType.Eof, Pos, Pos, null);
+                return Eof;
             }
-            // SEMI
-            if (c == ';')
+            // skip whitespaces
+            while (Pos < input.Length && (input[Pos] == ' ' || input[Pos] == '\t' || input[Pos] == '\n'))
             {
                 ReadAndIncrement();
-                return new Token(TokenType.Eof, Pos-1, Pos, ";");
+            }
+            // EOF
+            if (Pos == input.Length)
+            {
+                Eof = new Token(TokenType.Eof, Pos, Pos, null);
+                return Eof;
+            }
+            switch (input[Pos])
+            {
+                // ;
+                case (char) PascalDefaults.Chars.Semi:
+                    return new Token(TokenType.Semi, Pos - 1, Pos, ReadAndIncrement());
+                // /
+                case (char) PascalDefaults.Chars.Slash:
+                    // //
+                    if (Pos + 1 < input.Length && input[Pos + 1] == (char) PascalDefaults.Chars.Slash)
+                        return LexLineComment();
+                    // others
+                    return LexSpecial();
+                // {
+                case (char) PascalDefaults.Chars.LCurly:
+                    return LexMulCurlyComment();
+                // (
+                case (char) PascalDefaults.Chars.LSimple:
+                    // (*
+                    if (Pos + 1 < input.Length && input[Pos + 1] == (char) PascalDefaults.Chars.Star)
+                        return LexMulSimpleComment();
+                    // others
+                    return LexSpecial();
+                // '
+                case (char) PascalDefaults.Chars.Quote:
+                    return LexCharString();
+                // #
+                case (char) PascalDefaults.Chars.Control:
+                    // #[0..9]+
+                    if (Pos + 1 < input.Length && PascalDefaults.Digits.Contains(input[Pos + 1]))
+                        return LexCharString();
+                    return LexSpecial();
+            }
+            // - +
+            if (input[Pos] == (char) PascalDefaults.Chars.Minus || input[Pos] == (char) PascalDefaults.Chars.Plus)
+            {
+                Token number = TryLexSignedNumber();
+                if (number != null) 
+                    return number;
+                return LexSpecial();
+            }
+            
+            // % & $ 
+            if (PascalDefaults.NumbStarts.ContainsKey(input[Pos])) {
+                Token number = TryLexNumberSystems();
+                if (number != null) 
+                    return number;
+                return LexSpecial();
+            }
+            // DECIMAL
+            if (PascalDefaults.Digits.Contains(input[Pos])) {
+                return LexDecimal();
             }
             // IDENT
-            if (PascalDefaults.IdentStart.Contains((char) c)) return LexIdentifier();
-            // COMMENT
-            if (PascalDefaults.ComStart.Contains((char) c)) return LexComment();
-            // NUMBER
-            if (PascalDefaults.NumbStart.Contains((char) c)) return LexNumber();
-            // CHARACTER STRING
-            if (PascalDefaults.StrStart.Contains((char) c)) return LexCharString();
+            if (PascalDefaults.IdentStart.Contains(input[Pos]))
+            {
+                return LexIdentifier();
+            }
+            if (PascalDefaults.SpecialChs.Contains(input[Pos]))
+            {
+                return LexSpecial();
+            }
             // UNKNOWN
             return LexUnknown();
+        }
+
+        private Token TryLexSignedNumber()
+        {
+            // no sign
+            if (input[Pos] != (char) PascalDefaults.Chars.Minus && input[Pos] != (char) PascalDefaults.Chars.Plus)
+                return null;
+            if (Pos + 1 >= input.Length)
+                return null;
+            // (+|-)[0..9]*
+            if (PascalDefaults.Digits.Contains(input[Pos + 1]))
+                return LexDecimal();
+            // bin / octal / hex
+            if (PascalDefaults.NumbStarts.ContainsKey(input[Pos + 1]))
+            {
+                if (Pos + 2 < input.Length &&
+                    PascalDefaults.NumbStarts[input[Pos + 1]].Contains(input[Pos + 2]))
+                {
+                    return LexNumberSystem();
+                }
+            }
+            return null;
+        }
+
+        private Token TryLexNumberSystems()
+        {
+            if (Pos + 1 >= input.Length)
+            {
+                return null;
+            }
+            if (PascalDefaults.NumbStarts.ContainsKey(input[Pos]) && 
+                PascalDefaults.NumbStarts[input[Pos]].Contains(input[Pos + 1]))
+            {
+                return LexNumberSystem();
+            }
+            return null;
         }
 
         public List<Token> LexAll()
@@ -61,82 +146,49 @@ namespace PascalLexer
             return tokens;
         }
 
-        private int ReadAndIncrement()
+        private char ReadAndIncrement()
         {
-            Pos++;
-            return Reader.Read();
+            return input[Pos++];
         }
 
         private Token LexIdentifier()
         {
             int beg = Pos;
             StringBuilder sb = new StringBuilder();
-            while (PascalDefaults.IdentChars.Contains((char) Reader.Peek()))
+            while (Pos < input.Length && PascalDefaults.IdentChs.Contains(input[Pos]))
             {
-                sb.Append((char) ReadAndIncrement());
+                sb.Append(ReadAndIncrement());
             }
-            int c = Reader.Peek();
-            if (c == ' ' || c == '\n' || c == -1 || PascalDefaults.ComStart.Contains((char) c))
-            {
-                return new Token(TokenType.Ident, beg, Pos, sb.ToString());
-            }
-            return new Token(TokenType.Unknown, beg, Pos, sb.ToString());
-        }
-
-        private Token LexComment()
-        {
-            switch (Reader.Peek())
-            {
-                case (int) PascalDefaults.Chars.Line:
-                    return LexLineComment();
-                case (int) PascalDefaults.Chars.LSimple:
-                    return LexMulSimpleComment();
-                case (int) PascalDefaults.Chars.LCurly:
-                    return LexMulCurlyComment();
-            }
-            return new Token(TokenType.Unknown, Pos-1, Pos, (char) ReadAndIncrement());
+            return new Token(TokenType.Ident, beg, Pos, sb.ToString());
         }
 
         private Token LexLineComment()
         {
             int beg = Pos;
-            int fst = ReadAndIncrement();
-            int snd = Reader.Peek();
-            if (snd != (int) PascalDefaults.Chars.Line)
-            {
-                return new Token(TokenType.Unknown, beg, Pos, (char) fst);
-            }
             StringBuilder sb = new StringBuilder();
-            sb.Append('/');
-            while (Reader.Peek() != '\n' && Reader.Peek() != -1)
+            while (Pos < input.Length && input[Pos] != '\n')
             {
-                sb.Append((char) ReadAndIncrement());
+                sb.Append(ReadAndIncrement());
             }
             return new Token(TokenType.LComment, beg, Pos, sb.ToString());
         }
 
         private Token LexMulSimpleComment()
         {
-            int beg = Pos;
-            int fst = ReadAndIncrement();
-            int snd = Reader.Peek();
-            if (snd != (int) PascalDefaults.Chars.Star)
-            {
-                return new Token(TokenType.Unknown, beg, Pos, (char) fst);
-            }
             int ok = 0;
+            int beg = Pos;
             StringBuilder sb = new StringBuilder();
-            sb.Append((char) fst); // (
-            sb.Append((char) ReadAndIncrement()); // *
-            int c = ReadAndIncrement();
-            while (c != -1)
+            sb.Append(ReadAndIncrement()); // (
+            sb.Append(ReadAndIncrement()); // *
+            while (Pos < input.Length)
             {
-                sb.Append((char) c);
-                if (ok == 0 && c == (int) PascalDefaults.Chars.Star)
+                char c = ReadAndIncrement();
+                sb.Append(c);
+                if (ok == 0 && c == (char) PascalDefaults.Chars.Star)
                 {
                     ok++;
                 }
-                else if (ok == 1 && c == (int) PascalDefaults.Chars.RSimple)
+                else if (ok == 1 && c == (char) PascalDefaults.Chars.RSimple)
                 {
                     ok++;
                 }
@@ -148,104 +200,172 @@ namespace PascalLexer
                 {
                     return new Token(TokenType.MLComment, beg, Pos, sb.ToString());
                 }
-                c = ReadAndIncrement();
             }
-            return new Token(TokenType.Unknown, beg, Pos, sb.ToString());
+            return new Token(TokenType.BadMLComment, beg, Pos, sb.ToString());
         }
 
         private Token LexMulCurlyComment()
         {
             int beg = Pos;
-            int c = ReadAndIncrement();
             StringBuilder sb = new StringBuilder();
-            while (c != -1)
+            sb.Append(ReadAndIncrement()); // {
+            while (Pos < input.Length)
             {
-                sb.Append((char) c);
-                if (c == (int) PascalDefaults.Chars.RCurly)
+                char c = ReadAndIncrement();
+                sb.Append(c);
+                if (c == (char) PascalDefaults.Chars.RCurly)
                 {
                     return new Token(TokenType.MLComment, beg, Pos, sb.ToString());
                 }
-                c = ReadAndIncrement();
             }
-            return new Token(TokenType.Unknown, beg, Pos, sb.ToString());
+            return new Token(TokenType.BadMLComment, beg, Pos, sb.ToString());
         }
 
-        private Token LexNumber()
+        private Token LexDecimal()
         {
-            
-            return null;
+            int beg = Pos;
+            StringBuilder sb = new StringBuilder();
+            // SIGN
+            if (Pos < input.Length && (input[Pos] == '+' || input[Pos] == '-'))
+            {
+                sb.Append(ReadAndIncrement());
+            }
+            LexDigitSequence(sb);
+            // REAL
+            if (Pos < input.Length && input[Pos] == '.')
+            {
+                if (Pos + 1 < input.Length && PascalDefaults.Digits.Contains(input[Pos + 1]))
+                {
+                    sb.Append(ReadAndIncrement()); // .
+                    LexDigitSequence(sb);
+                }
+                else
+                {
+                    return new Token(TokenType.Number, beg, Pos, sb.ToString());
+                }
+            }
+            // SCALE FACTOR
+            if (Pos < input.Length && (input[Pos] == 'E' || input[Pos] == 'e')) // E
+            {
+                if (Pos + 1 < input.Length) 
+                {
+                    if (input[Pos + 1] == '+' || input[Pos + 1] == '-') // sign
+                    {
+                        if (Pos + 2 < input.Length && PascalDefaults.Digits.Contains(input[Pos + 2]))
+                        {
+                            sb.Append(ReadAndIncrement()); // E
+                            sb.Append(ReadAndIncrement()); // sign
+                            LexDigitSequence(sb);
+                        }
+                    }
+                    else if (PascalDefaults.Digits.Contains(input[Pos + 1])) // no sign
+                    {
+                        sb.Append(ReadAndIncrement()); // E
+                        LexDigitSequence(sb);
+                    }
+                }
+            }
+            return new Token(TokenType.Number, beg, Pos, sb.ToString());
         }
 
+        private void LexDigitSequence(StringBuilder sb)
+        {
+            while (Pos < input.Length && PascalDefaults.Digits.Contains(input[Pos]))
+            {
+                sb.Append(ReadAndIncrement());
+            }
+        }
 
+        private Token LexNumberSystem()
+        {
+            int beg = Pos;
+            StringBuilder sb = new StringBuilder();
+            if (input[Pos] == (char) PascalDefaults.Chars.Minus || input[Pos] == (char) PascalDefaults.Chars.Plus)
+            {
+                sb.Append(ReadAndIncrement());
+            }
+            char system = ReadAndIncrement();
+            sb.Append(system);
+            while (Pos < input.Length && PascalDefaults.NumbStarts[system].Contains(input[Pos]))
+            {
+                sb.Append(ReadAndIncrement());
+            }
+            return new Token(TokenType.Number, beg, Pos, sb.ToString());
+        }
+
+        private Token LexSpecial()
+        {
+            int beg = Pos;
+            return new Token(TokenType.Special, beg, beg + 1, ReadAndIncrement());
+        }
+        
         private Token LexCharString()
         {
             int beg = Pos;
-            bool ok = true;
+            bool ok = false;
             StringBuilder sb = new StringBuilder();
-            while (ok)
+            while (Pos < input.Length)
             {
-                switch (Reader.Peek())
+                switch (input[Pos])
                 {
-                    case (char) PascalDefaults.Chars.Jail:
+                    case (char) PascalDefaults.Chars.Control:
                         ok = LexControlString(sb);
                         break;
                     case (char) PascalDefaults.Chars.Quote:
                         ok = LexQuotedString(sb);
                         break;
                     default:
+                        if (!ok)
+                        {
+                            return new Token(TokenType.BadCharStr, beg, Pos, sb.ToString());
+                        }
                         return new Token(TokenType.CharStr, beg, Pos, sb.ToString());
                 }
             }
-            return new Token(TokenType.Unknown, beg, Pos, sb.ToString());
+            if (!ok)
+            {
+                return new Token(TokenType.BadCharStr, beg, Pos, sb.ToString());
+            }
+            return new Token(TokenType.CharStr, beg, Pos, sb.ToString());
         }
 
         private bool LexControlString(StringBuilder sb)
         {
-            bool ok = true;
-            int c = ReadAndIncrement(); // #
-            sb.Append((char) c);
-            c = ReadAndIncrement();
-            if (!PascalDefaults.Digits.Contains((char) c))
+            bool ok = false;
+            sb.Append(ReadAndIncrement()); // #
+            while (Pos < input.Length && PascalDefaults.Digits.Contains(input[Pos]))
             {
-                ok = false;
-            }
-            while (c != ' ' && c != '\n' && c != -1)
-            {
-                sb.Append((char) c);
-                if (ok && !PascalDefaults.Digits.Contains((char) c))
-                {
-                    ok = false;
-                }
-                c = ReadAndIncrement();
+                sb.Append(ReadAndIncrement());
+                ok = true;
             }
             return ok;
         }
 
         private bool LexQuotedString(StringBuilder sb)
         {
-            int c = ReadAndIncrement(); // #
-            sb.Append((char) c);
-            c = ReadAndIncrement();
-            while (c != ' ' && c != '\n' && c != -1)
+            bool ok = false;
+            sb.Append(ReadAndIncrement()); // '
+            while (Pos < input.Length && input[Pos] != '\n')
             {
-                sb.Append((char) c);
-                if (c == (char) PascalDefaults.Chars.Quote)
+                if (input[Pos] == (char) PascalDefaults.Chars.Quote)
                 {
-                    return true;
+                    sb.Append(ReadAndIncrement());
+                    ok = true;
+                    break;
                 }
-                c = ReadAndIncrement();
+                sb.Append(ReadAndIncrement());
             }
-            return false;
+            return ok;
         }
 
         private Token LexUnknown()
         {
-            StringBuilder sb = new StringBuilder();
             int beg = Pos;
-            int c = ReadAndIncrement();
-            while (c != ' ' && c != '\n' && c != -1)
+            StringBuilder sb = new StringBuilder();
+            char c = ReadAndIncrement();
+            while (Pos < input.Length && c != ' ' && c != '\n' && c != -1)
             {
-                sb.Append((char) c);
+                sb.Append(c);
                 c = ReadAndIncrement();
             }
             return new Token(TokenType.Unknown, beg, Pos, sb.ToString());
